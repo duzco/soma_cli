@@ -1,0 +1,12 @@
+Bearer: 9271573f87468f64500c01a24868ceb8
+Bearer: 9271573f87468f64500c01a24868ceb8
+
+
+ffmpeg -headers "Authorization: Bearer 9271573f87468f64500c01a24868ceb8" -i "https://frisky.fm/radio/frisky" -vn -f mp3 - | ffplay -
+ffmpeg -headers "Authorization: Bearer 9271573f87468f64500c01a24868ceb8" -i "https://frisky.fm/radio/frisky" -vn -f mp3 - | ffplay -
+
+
+streamlink --http-header "Authorization=Bearer 9271573f87468f64500c01a24868ceb8" "https://frisky.fm/radio/frisky" best
+streamlink --http-header "Authorization=Bearer 9271573f87468f64500c01a24868ceb8" "https://frisky.fm/radio/frisky" best
+curl -H "Authorization: Bearer 9271573f87468f64500c01a24868ceb8" "http://media.friskyradio.com.s3.amazonaws.com/fatalist/fatalist_aug2024_DigitalDepartment.mp3"
+
