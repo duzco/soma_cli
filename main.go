@@ -1,16 +1,17 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"os"
-	"os/exec"
-	"os/signal"
-	"syscall"
 	"bufio"
-	"strings"
+	"fmt"
 	"encoding/xml"
+	"log"
 	"net/http"
+	"os"
+	"strings"
+	"time"
+	"github.com/faiface/beep"
+	"github.com/faiface/beep/mp3"
+	"github.com/faiface/beep/speaker"
 	"golang.org/x/net/html/charset"
 )
 
@@ -31,8 +32,6 @@ type Song struct {
 type Songs struct {
 	Songs []Song `xml:"song"`
 }
-
-var cmd *exec.Cmd
 
 // Station data: station name -> stream URL and Songs URL
 var stations = map[string]Station{
@@ -82,8 +81,8 @@ func main() {
 		// Check if input matches a shortcut
 		for name, station := range stations {
 			if len(input) == 1 && rune(input[0]) == station.Shortcut {
-				selectedStationName = name
 				selectedStation = &station
+				selectedStationName = name // Store the station name
 				break
 			}
 		}
@@ -91,8 +90,8 @@ func main() {
 		// If no shortcut matched, check if the input matches a station name
 		if selectedStation == nil {
 			if station, exists := stations[input]; exists {
-				selectedStationName = input
 				selectedStation = &station
+				selectedStationName = input // Store the station name
 			}
 		}
 
@@ -100,34 +99,65 @@ func main() {
 			fmt.Println("Invalid station name or shortcut. Please try again.")
 			continue
 		}
-		
-		// Start the ffplay process with fade-in and volume control
-		cmd = exec.Command("ffplay", "-vn", "-nodisp", "-af", "afade=t=in:st=0:d=3,volume=1.0", selectedStation.URL)
 
-		// Start the process in the background
-		err := cmd.Start()
-		if err != nil {
-			log.Fatalf("Error starting ffplay: %v", err)
-		}
-
-
-		// Fetch and print the track data for the selected station
+		// Fetch and print track data
 		fetchAndPrintTrackData(selectedStation.SongsURL, selectedStationName)
 
-		// Wait for user command to switch or quit
-		go handleSignals(cmd)
+		// Start playing the stream using the oto package
+		playStream(selectedStation.URL)
+	}
+}
+
+var stopChannel = make(chan bool)
+
+func playStream(streamURL string) {
+	resp, err := http.Get(streamURL)
+	if err != nil {
+		log.Fatalf("Failed to get stream: %v", err)
+	}
+
+	stream := resp.Body
+
+	decoder, format, err := mp3.Decode(stream)
+	if err != nil {
+		log.Fatalf("Failed to decode mp3: %v", err)
+	}
+
+	done := make(chan bool)
+
+	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+
+	// Play the stream in a separate goroutine
+	go func() {
+		speaker.Play(beep.Seq(decoder, beep.Callback(func() {
+			done <- true
+		})))
 
 		for {
-			fmt.Print("\nEnter 'sw' to switch stations or 'Ctrl + c' to quit: ")
-			command, _ := reader.ReadString('\n')
-			command = strings.TrimSpace(command)
+			select {
+			case <-stopChannel:
+				speaker.Clear()
+				return
+			default:
+				// Wait for user command to switch or quit
+				fmt.Print("\nEnter 'sw' to switch stations or 'Ctrl + c' to quit: ")
+				command, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+				command = strings.TrimSpace(command)
 
-			if command == "sw" {
-				stopStation()
-				break
+				if command == "sw" {
+					stopStation()
+					return
+				}
 			}
 		}
-	}
+	}()
+
+	<-done
+}
+
+func stopStation() {
+	stopChannel <- true
+	fmt.Println("Stream stopped.")
 }
 
 func fetchAndPrintTrackData(songsURL string, selectedStationName string) {
@@ -148,8 +178,6 @@ func fetchAndPrintTrackData(songsURL string, selectedStationName string) {
 		return
 	}
 
-	//fmt.Println("\nCurrent Track Data:")
-
 	// Print the current track (first track)
 	if len(songs.Songs) > 0 {
 		firstSong := songs.Songs[0]
@@ -163,23 +191,4 @@ func fetchAndPrintTrackData(songsURL string, selectedStationName string) {
 	for _, song := range songs.Songs[1:6] { // Five most recent tracks
 		fmt.Printf("%-35.35s  %-20.20s  %-20.20s\n", song.Title, song.Artist, song.Album)
 	}
-}
-
-// Function to stop the current ffplay process
-func stopStation() {
-	fmt.Println("Stopping the current station...")
-	if cmd.Process != nil {
-		cmd.Process.Kill()
-	}
-	fmt.Println("Stream stopped.")
-}
-
-// Handle interrupt signals like Ctrl+C
-func handleSignals(cmd *exec.Cmd) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	<-sigChan
-	stopStation()
-	os.Exit(0)
 }
