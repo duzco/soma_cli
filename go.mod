@@ -5,6 +5,7 @@ go 1.23.0
 require golang.org/x/net v0.28.0
 
 require (
+	github.com/eapache/queue v1.1.0
 	github.com/ebitengine/purego v0.7.1 // indirect
 	github.com/faiface/beep v1.1.0 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
@@ -14,6 +15,7 @@ require (
 	github.com/hajimehoshi/oto/v2 v2.4.2 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/mjibson/go-dsp v0.0.0-20180508042940-11479a337f12
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/tview v0.0.0-20240818110301-fd649dbf1223 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

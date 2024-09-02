@@ -2,16 +2,21 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"encoding/xml"
+	"fmt"
 	"log"
+	"math/cmplx"
 	"net/http"
 	"os"
 	"strings"
+	//"sync"
 	"time"
+
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
+	"github.com/mjibson/go-dsp/fft"
+	//"github.com/eapache/queue"
 	"golang.org/x/net/html/charset"
 )
 
@@ -41,6 +46,8 @@ var stations = map[string]Station{
 	"Secret Agent":   {URL: "https://ice6.somafm.com/secretagent-128-mp3", Shortcut: 's', SongsURL: "https://somafm.com/songs/secretagent.xml"},
 	"Underground 80s": {URL: "https://ice6.somafm.com/u80s-128-mp3", Shortcut: '8', SongsURL: "https://somafm.com/songs/u80s.xml"},
 }
+
+var stopChannel = make(chan bool)
 
 func main() {
 	reader := bufio.NewReader(os.Stdin)
@@ -108,56 +115,78 @@ func main() {
 	}
 }
 
-var stopChannel = make(chan bool)
+var (
+	stopPlayback = make(chan bool)
+	stopAnalysis = make(chan bool)
+)
 
 func playStream(streamURL string) {
 	resp, err := http.Get(streamURL)
 	if err != nil {
 		log.Fatalf("Failed to get stream: %v", err)
 	}
+	defer resp.Body.Close()
 
-	stream := resp.Body
-
-	decoder, format, err := mp3.Decode(stream)
+	streamer, format, err := mp3.Decode(resp.Body)
 	if err != nil {
 		log.Fatalf("Failed to decode mp3: %v", err)
 	}
-
-	done := make(chan bool)
+	defer streamer.Close()
 
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 
-	// Play the stream in a separate goroutine
-	go func() {
-		speaker.Play(beep.Seq(decoder, beep.Callback(func() {
-			done <- true
-		})))
+	done := make(chan bool)
 
-		for {
-			select {
-			case <-stopChannel:
-				speaker.Clear()
-				return
-			default:
-				// Wait for user command to switch or quit
-				fmt.Print("\nEnter 'sw' to switch stations or 'Ctrl + c' to quit: ")
-				command, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-				command = strings.TrimSpace(command)
-
-				if command == "sw" {
-					stopStation()
-					return
-				}
-			}
+	// Create a custom streamer that analyzes the frequencies
+	streamerWithAnalysis := beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
+		n, ok = streamer.Stream(samples)
+		if !ok {
+			return n, ok
 		}
-	}()
 
-	<-done
+		// Analyze the left channel
+		leftChannel := make([]float64, n)
+		for i := 0; i < n; i++ {
+			leftChannel[i] = samples[i][0]
+		}
+
+		go analyzeFrequencies(leftChannel)
+
+		return n, ok
+	})
+
+	speaker.Play(beep.Seq(streamerWithAnalysis, beep.Callback(func() {
+		done <- true
+	})))
+
+	// Wait for playback to finish or for a stop signal
+	select {
+	case <-done:
+	case <-stopPlayback:
+		speaker.Clear()
+	}
 }
 
-func stopStation() {
-	stopChannel <- true
-	fmt.Println("Stream stopped.")
+func analyzeFrequencies(leftChannel []float64) {
+	bands := calculateBands(leftChannel)
+	fmt.Println("Frequency Bands:", bands)
+}
+
+func calculateBands(samples []float64) []float64 {
+	fftResult := fft.FFTReal(samples)
+	numBands := 10
+	bandWidth := len(fftResult) / numBands
+	bands := make([]float64, numBands)
+
+	for i := 0; i < numBands; i++ {
+		bandPower := 0.0
+		for j := 0; j < bandWidth; j++ {
+			bandPower += cmplx.Abs(fftResult[i*bandWidth+j])
+		}
+		bands[i] = bandPower / float64(bandWidth)
+	}
+
+	return bands
 }
 
 func fetchAndPrintTrackData(songsURL string, selectedStationName string) {
