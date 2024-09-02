@@ -10,7 +10,9 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
 
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/mp3"
@@ -51,6 +53,7 @@ var (
 	inputBuffer    string
 	inputTimeout   = 2 * time.Second // Timeout for flushing the buffer
 	lastInputTime  time.Time
+	renderLock	   sync.Mutex
 )
 
 func main() {
@@ -179,7 +182,7 @@ func playStream(streamURL string, bc *widgets.BarChart) {
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 
 	done := make(chan bool)
-	ticker := time.NewTicker(100 * time.Millisecond) // Limit updates to 5 times per second
+	ticker := time.NewTicker(20 * time.Millisecond) // Limit updates to 5 times per second
 	defer ticker.Stop()
 
 	// Create a custom streamer that analyzes the frequencies
@@ -198,7 +201,7 @@ func playStream(streamURL string, bc *widgets.BarChart) {
 
 		select {
 		case <-ticker.C: // Only analyze and update at the specified interval
-			go analyzeFrequencies(leftChannel, bc)
+			analyzeFrequencies(leftChannel, bc)
 		default:
 		}
 
@@ -225,9 +228,8 @@ func analyzeFrequencies(leftChannel []float64, bc *widgets.BarChart) {
 	if len(bands) > 2 {
 		bands = bands[1 : len(bands)-1]
 	}
-
-	//mu.Lock()
-	//defer mu.Unlock()
+	renderLock.Lock()
+    defer renderLock.Unlock()
 	bc.Data = bands
 	termui.Render(bc)
 }
@@ -277,7 +279,7 @@ func fetchAndPrintTrackData(songsURL string, selectedStationName string, trackIn
 		builder.WriteString(fmt.Sprintf("%-23.23s  %-20.20s  %-15.15s\n\n", firstSong.Title, firstSong.Artist, firstSong.Album))
 	}
 
-	builder.WriteString("--------------------------History--------------------------\n")
+	builder.WriteString("  --------------------------History--------------------------\n")
 	// Print the other tracks
 	for _, song := range songs.Songs[1:6] { // Five most recent tracks
 		builder.WriteString(fmt.Sprintf("%-23.23s  %-20.20s  %-15.15s\n", song.Title, song.Artist, song.Album))

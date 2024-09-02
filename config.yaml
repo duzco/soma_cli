@@ -1,4 +1,4 @@
-#
+# Note: Station shortcuts will work even id not displayed
 stations:
   Deep Space One:
     display: true
@@ -14,7 +14,7 @@ stations:
     songs_url: "https://somafm.com/songs/dronezone.xml"
     description: 
 
-  Groove Salad:
+  Groove Salad: 
     display: true
     url: "https://ice6.somafm.com/groovesalad-128-mp3"
     shortcut: "gs"
