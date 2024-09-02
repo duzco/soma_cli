@@ -5,11 +5,17 @@ go 1.23.0
 require golang.org/x/net v0.28.0
 
 require (
+	github.com/mitchellh/go-wordwrap v0.0.0-20150314170334-ad45545899c7 // indirect
+	github.com/nsf/termbox-go v0.0.0-20190121233118-02980233997d // indirect
+)
+
+require (
 	github.com/eapache/queue v1.1.0
 	github.com/ebitengine/purego v0.7.1 // indirect
 	github.com/faiface/beep v1.1.0 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
 	github.com/gdamore/tcell/v2 v2.7.1 // indirect
+	github.com/gizak/termui/v3 v3.1.0
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/hajimehoshi/oto v1.0.1 // indirect
 	github.com/hajimehoshi/oto/v2 v2.4.2 // indirect

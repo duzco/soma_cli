@@ -1,22 +1,22 @@
 package main
 
 import (
-	"bufio"
+	//"bufio"
 	"encoding/xml"
 	"fmt"
 	"log"
 	"math/cmplx"
 	"net/http"
-	"os"
+	//"os"
 	"strings"
-	//"sync"
 	"time"
 
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
+	"github.com/gizak/termui/v3"
+	"github.com/gizak/termui/v3/widgets"
 	"github.com/mjibson/go-dsp/fft"
-	//"github.com/eapache/queue"
 	"golang.org/x/net/html/charset"
 )
 
@@ -47,80 +47,81 @@ var stations = map[string]Station{
 	"Underground 80s": {URL: "https://ice6.somafm.com/u80s-128-mp3", Shortcut: '8', SongsURL: "https://somafm.com/songs/u80s.xml"},
 }
 
-var stopChannel = make(chan bool)
-
-func main() {
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		fmt.Print("\033[H\033[2J") // Clear the screen
-
-		fmt.Print(`
-     ########################################################################
- ###############################################################.....############ 
-##############################################################...#################
-##############################################################..##################
-##..........###........####...........####........##########.......###..........##
-#...######..##...#####...##...#...-#..###########..###########..######...#...-#..#
-##-.....#####-..######...##..##...##..####.........###########..######..##...##..#
-######.....##-..######...##..##...##..##...........###########..######..##...##..#
-##. ##### ..#-..######...##..##...##..##..#######..###########..######..##...##..#
-#...........##..........###..##...##..##...........###########..######..##...##..#
-###.......######-....-#####..###.####.####.....-#..###########..######..###.####.#
- ################################################################################
-    #########################################################################
-		`)
-
-		fmt.Println("\nAvailable Stations:\n(enter code or 'Ctrl + c' to quit)")
-		for name, station := range stations {
-			fmt.Printf("%c -- %s\n", station.Shortcut, name)
-		}
-
-		// Get user input
-		fmt.Print("\nEnter the station code or name to play: ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input) // Remove leading/trailing whitespaces
-
-		// Determine the selected station
-		var selectedStationName string
-		var selectedStation *Station
-
-		// Check if input matches a shortcut
-		for name, station := range stations {
-			if len(input) == 1 && rune(input[0]) == station.Shortcut {
-				selectedStation = &station
-				selectedStationName = name // Store the station name
-				break
-			}
-		}
-
-		// If no shortcut matched, check if the input matches a station name
-		if selectedStation == nil {
-			if station, exists := stations[input]; exists {
-				selectedStation = &station
-				selectedStationName = input // Store the station name
-			}
-		}
-
-		if selectedStation == nil {
-			fmt.Println("Invalid station name or shortcut. Please try again.")
-			continue
-		}
-
-		// Fetch and print track data
-		fetchAndPrintTrackData(selectedStation.SongsURL, selectedStationName)
-
-		// Start playing the stream using the oto package
-		playStream(selectedStation.URL)
-	}
-}
-
 var (
 	stopPlayback = make(chan bool)
 	stopAnalysis = make(chan bool)
 )
 
-func playStream(streamURL string) {
+func main() {
+	if err := termui.Init(); err != nil {
+		log.Fatalf("Failed to initialize termui: %v", err)
+	}
+	defer termui.Close()
+
+	// Create a paragraph widget to display track info
+	trackInfo := widgets.NewParagraph()
+	trackInfo.Title = "Now Playing"
+	trackInfo.Text = "No track selected"
+	trackInfo.SetRect(0, 0, 50, 5)
+
+	// Create a bar chart widget to display frequency bands
+	bc := widgets.NewBarChart()
+	bc.Title = "Frequency Bands"
+	bc.SetRect(0, 5, 50, 15)
+	bc.Labels = []string{"", "", "", "", "", "", "", "", "", ""} // Remove labels
+	bc.NumFormatter = func(v float64) string { return "" } // Prevent values from showing
+	termui.Render(trackInfo, bc)
+
+	// Display station options and await user input
+	stationDisplay := widgets.NewParagraph()
+	stationDisplay.Title = "Available Stations"
+	stationDisplay.Text = getStationList()
+	stationDisplay.SetRect(0, 15, 50, 25)
+
+	termui.Render(trackInfo, bc, stationDisplay)
+
+	// Start listening for keyboard events
+	uiEvents := termui.PollEvents()
+
+	for {
+		e := <-uiEvents
+		if e.Type == termui.KeyboardEvent {
+			switch e.ID {
+			case "q", "<C-c>":
+				return
+			default:
+				// Check if the pressed key matches any station shortcut
+				if station := getStationByShortcut(e.ID); station != nil {
+					go func() {
+						fetchAndPrintTrackData(station.SongsURL, trackInfo)
+						termui.Render(trackInfo)
+					}()
+					go playStream(station.URL, bc)
+				}
+			}
+		}
+	}
+}
+
+func getStationList() string {
+	var builder strings.Builder
+	builder.WriteString("Press a key to select a station:\n\n")
+	for name, station := range stations {
+		builder.WriteString(fmt.Sprintf("%c -- %s\n", station.Shortcut, name))
+	}
+	return builder.String()
+}
+
+func getStationByShortcut(shortcut string) *Station {
+	for _, station := range stations {
+		if shortcut == string(station.Shortcut) {
+			return &station
+		}
+	}
+	return nil
+}
+
+func playStream(streamURL string, bc *widgets.BarChart) {
 	resp, err := http.Get(streamURL)
 	if err != nil {
 		log.Fatalf("Failed to get stream: %v", err)
@@ -136,6 +137,8 @@ func playStream(streamURL string) {
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 
 	done := make(chan bool)
+	ticker := time.NewTicker(200 * time.Millisecond) // Limit updates to 5 times per second
+	defer ticker.Stop()
 
 	// Create a custom streamer that analyzes the frequencies
 	streamerWithAnalysis := beep.StreamerFunc(func(samples [][2]float64) (n int, ok bool) {
@@ -144,13 +147,18 @@ func playStream(streamURL string) {
 			return n, ok
 		}
 
+		
 		// Analyze the left channel
 		leftChannel := make([]float64, n)
 		for i := 0; i < n; i++ {
 			leftChannel[i] = samples[i][0]
 		}
 
-		go analyzeFrequencies(leftChannel)
+		select {
+		case <-ticker.C: // Only analyze and update at the specified interval
+			go analyzeFrequencies(leftChannel, bc)
+		default:
+		}
 
 		return n, ok
 	})
@@ -167,14 +175,24 @@ func playStream(streamURL string) {
 	}
 }
 
-func analyzeFrequencies(leftChannel []float64) {
+func analyzeFrequencies(leftChannel []float64, bc *widgets.BarChart) {
 	bands := calculateBands(leftChannel)
-	fmt.Println("Frequency Bands:", bands)
+
+
+	// Eliminate the first and last bands
+	if len(bands) > 2 {
+		bands = bands[1 : len(bands)-1]
+	}
+
+	//mu.Lock()
+	//defer mu.Unlock()
+	bc.Data = bands
+	termui.Render(bc)
 }
 
 func calculateBands(samples []float64) []float64 {
 	fftResult := fft.FFTReal(samples)
-	numBands := 10
+	numBands := 12
 	bandWidth := len(fftResult) / numBands
 	bands := make([]float64, numBands)
 
@@ -189,7 +207,7 @@ func calculateBands(samples []float64) []float64 {
 	return bands
 }
 
-func fetchAndPrintTrackData(songsURL string, selectedStationName string) {
+func fetchAndPrintTrackData(songsURL string, trackInfo *widgets.Paragraph) {
 	resp, err := http.Get(songsURL)
 	if err != nil {
 		fmt.Println("Error fetching track data:", err)
@@ -203,21 +221,14 @@ func fetchAndPrintTrackData(songsURL string, selectedStationName string) {
 
 	var songs Songs
 	if err := decoder.Decode(&songs); err != nil {
-		fmt.Println("Error parsing track data:", err)
+		trackInfo.Text = "Error parsing track data"
 		return
 	}
 
-	// Print the current track (first track)
 	if len(songs.Songs) > 0 {
 		firstSong := songs.Songs[0]
-		fmt.Println("Now playing on", selectedStationName)
-		fmt.Println("Track:                               Artist:               Album:")
-		fmt.Printf("%-35.35s  %-20.20s  %-20.20s\n\n", firstSong.Title, firstSong.Artist, firstSong.Album)
-	}
-
-	fmt.Println("    ----------------------------History------------------------------")
-	// Print the other tracks
-	for _, song := range songs.Songs[1:6] { // Five most recent tracks
-		fmt.Printf("%-35.35s  %-20.20s  %-20.20s\n", song.Title, song.Artist, song.Album)
+		trackInfo.Text = fmt.Sprintf("Now playing: %s - %s\nAlbum: %s", firstSong.Title, firstSong.Artist, firstSong.Album)
+	} else {
+		trackInfo.Text = "No track info available"
 	}
 }
