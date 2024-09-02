@@ -1,0 +1,57 @@
+#
+stations:
+  Deep Space One:
+    display: true
+    url: "https://ice6.somafm.com/deepspaceone-128-mp3"
+    shortcut: "ds"
+    songs_url: "https://somafm.com/songs/deepspaceone.xml"
+    description: 
+
+  Drone Zone:
+    display: true
+    url: "https://ice6.somafm.com/dronezone-128-mp3"
+    shortcut: "dz"
+    songs_url: "https://somafm.com/songs/dronezone.xml"
+    description: 
+
+  Groove Salad:
+    display: true
+    url: "https://ice6.somafm.com/groovesalad-128-mp3"
+    shortcut: "gs"
+    songs_url: "https://somafm.com/songs/groovesalad.xml"
+    description: 
+
+  Indie Pop Rocks!:
+    display: true
+    url: "https://ice6.somafm.com/indiepop-128-mp3"
+    shortcut: "ip"
+    songs_url: "https://somafm.com/songs/indiepop.xml"
+    description: 
+
+  Lush:
+    display: true
+    url: "https://ice6.somafm.com/lush-128-mp3"
+    shortcut: "lu"
+    songs_url: "https://somafm.com/songs/lush.xml"
+    description: "A nicely chilled plate of ambient/downtempo beats and grooves."
+
+  Secret Agent:
+    display: true
+    url: "https://ice6.somafm.com/secretagent-128-mp3"
+    shortcut: "sa"
+    songs_url: "https://somafm.com/songs/secretagent.xml"
+    description: 
+
+  Underground 80s:
+    display: true
+    url: "https://ice6.somafm.com/u80s-128-mp3"
+    shortcut: "u8"
+    songs_url: "https://somafm.com/songs/u80s.xml"
+    description: 
+
+  Vaporwaves:
+    display: true
+    url: "https://ice6.somafm.com/vaporwaves-128-mp3"
+    shortcut: "vw"
+    songs_url: "https://somafm.com/songs/vaporwaves.xml"
+    description: 

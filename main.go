@@ -1,13 +1,14 @@
 package main
 
 import (
-	//"bufio"
 	"encoding/xml"
 	"fmt"
+	"gopkg.in/yaml.v2"
 	"log"
 	"math/cmplx"
 	"net/http"
-	//"os"
+	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,10 +21,15 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+type Config struct {
+	Stations map[string]Station `yaml:"stations"`
+}
+
 type Station struct {
-	URL      string
-	Shortcut rune
-	SongsURL string // URL for fetching song data
+	Display  bool   `yaml:"display"`
+	URL      string `yaml:"url"`
+	Shortcut string `yaml:"shortcut"`
+	SongsURL string `yaml:"songs_url"`
 }
 
 // Song structure to map the XML data
@@ -38,21 +44,31 @@ type Songs struct {
 	Songs []Song `xml:"song"`
 }
 
-// Station data: station name -> stream URL and Songs URL
-var stations = map[string]Station{
-	"Lush":           {URL: "https://ice6.somafm.com/lush-128-mp3", Shortcut: 'l', SongsURL: "https://somafm.com/songs/lush.xml"},
-	"Groove Salad":   {URL: "https://ice6.somafm.com/groovesalad-128-mp3", Shortcut: 'g', SongsURL: "https://somafm.com/songs/groovesalad.xml"},
-	"Indie Pop Rocks!": {URL: "https://ice6.somafm.com/indiepop-128-mp3", Shortcut: 'i', SongsURL: "https://somafm.com/songs/indiepop.xml"},
-	"Secret Agent":   {URL: "https://ice6.somafm.com/secretagent-128-mp3", Shortcut: 's', SongsURL: "https://somafm.com/songs/secretagent.xml"},
-	"Underground 80s": {URL: "https://ice6.somafm.com/u80s-128-mp3", Shortcut: '8', SongsURL: "https://somafm.com/songs/u80s.xml"},
-}
-
 var (
+	stations       map[string]Station
 	stopPlayback = make(chan bool)
-	stopAnalysis = make(chan bool)
+	//stopAnalysis = make(chan bool)
+	inputBuffer    string
+	inputTimeout   = 2 * time.Second // Timeout for flushing the buffer
+	lastInputTime  time.Time
 )
 
 func main() {
+	// Read the config file
+	data, err := os.ReadFile("config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to read config file: %v", err)
+	}
+
+	// Parse the YAML data into the Config struct
+	var config Config
+	err = yaml.Unmarshal(data, &config)
+	if err != nil {
+		log.Fatalf("Failed to parse YAML: %v", err)
+	}
+
+	// Assign loaded stations to the global stations variable
+	stations = config.Stations
 	if err := termui.Init(); err != nil {
 		log.Fatalf("Failed to initialize termui: %v", err)
 	}
@@ -66,17 +82,19 @@ func main() {
 
 	// Create a bar chart widget to display frequency bands
 	bc := widgets.NewBarChart()
-	bc.Title = "Frequency Bands"
+	bc.Title = ""
 	bc.SetRect(0, 5, 50, 15)
 	bc.Labels = []string{"", "", "", "", "", "", "", "", "", ""} // Remove labels
 	bc.NumFormatter = func(v float64) string { return "" } // Prevent values from showing
+	bc.BarColors = []termui.Color{termui.ColorCyan}    
 	termui.Render(trackInfo, bc)
 
 	// Display station options and await user input
 	stationDisplay := widgets.NewParagraph()
-	stationDisplay.Title = "Available Stations"
+	stationDisplay.Title = "My Stations"
 	stationDisplay.Text = getStationList()
-	stationDisplay.SetRect(0, 15, 50, 25)
+	lines := strings.Count(stationDisplay.Text, "\n") + 2 // Add 2 for padding (title, etc.)
+	stationDisplay.SetRect(0, 15, 50, 15 + lines)
 
 	termui.Render(trackInfo, bc, stationDisplay)
 
@@ -86,28 +104,52 @@ func main() {
 	for {
 		e := <-uiEvents
 		if e.Type == termui.KeyboardEvent {
-			switch e.ID {
-			case "q", "<C-c>":
-				return
-			default:
-				// Check if the pressed key matches any station shortcut
-				if station := getStationByShortcut(e.ID); station != nil {
-					go func() {
-						fetchAndPrintTrackData(station.SongsURL, trackInfo)
-						termui.Render(trackInfo)
-					}()
-					go playStream(station.URL, bc)
-				}
+			now := time.Now()
+
+			// Check if the buffer should be reset
+			if now.Sub(lastInputTime) > inputTimeout {
+				inputBuffer = ""
 			}
+
+			lastInputTime = now
+			inputBuffer += e.ID
+
+			// Check if the accumulated input matches any station shortcut
+			if station := getStationByShortcut(inputBuffer); station != nil {
+				go func() {
+					fetchAndPrintTrackData(station.SongsURL, trackInfo)
+					termui.Render(trackInfo)
+				}()
+				go playStream(station.URL, bc)
+				
+				// Clear the buffer after successful match
+				inputBuffer = ""
+			}
+		}
+
+		// Handle quitting
+		if e.Type == termui.KeyboardEvent && (e.ID == "q" || e.ID == "<C-c>") {
+			break
 		}
 	}
 }
 
 func getStationList() string {
+	// Extract station names and shortcuts
+	stationKeys := make([]string, 0, len(stations))
+	for name := range stations {
+		stationKeys = append(stationKeys, name)
+	}
+
+	// Sort the station names alphabetically
+	sort.Strings(stationKeys)
+
 	var builder strings.Builder
-	builder.WriteString("Press a key to select a station:\n\n")
-	for name, station := range stations {
-		builder.WriteString(fmt.Sprintf("%c -- %s\n", station.Shortcut, name))
+	for _, name := range stationKeys {
+		station := stations[name]
+		if station.Display {
+			builder.WriteString(fmt.Sprintf("%s - %s\n", station.Shortcut, name))
+		}
 	}
 	return builder.String()
 }
@@ -137,7 +179,7 @@ func playStream(streamURL string, bc *widgets.BarChart) {
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 
 	done := make(chan bool)
-	ticker := time.NewTicker(200 * time.Millisecond) // Limit updates to 5 times per second
+	ticker := time.NewTicker(80 * time.Millisecond) // Limit updates to 5 times per second
 	defer ticker.Stop()
 
 	// Create a custom streamer that analyzes the frequencies
@@ -181,7 +223,7 @@ func analyzeFrequencies(leftChannel []float64, bc *widgets.BarChart) {
 
 	// Eliminate the first and last bands
 	if len(bands) > 2 {
-		bands = bands[1 : len(bands)-1]
+		bands = bands[2 : len(bands)-2]
 	}
 
 	//mu.Lock()
@@ -192,7 +234,7 @@ func analyzeFrequencies(leftChannel []float64, bc *widgets.BarChart) {
 
 func calculateBands(samples []float64) []float64 {
 	fftResult := fft.FFTReal(samples)
-	numBands := 12
+	numBands := 16
 	bandWidth := len(fftResult) / numBands
 	bands := make([]float64, numBands)
 
