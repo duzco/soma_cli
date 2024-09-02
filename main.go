@@ -78,12 +78,13 @@ func main() {
 	trackInfo := widgets.NewParagraph()
 	trackInfo.Title = "Now Playing"
 	trackInfo.Text = "No track selected"
-	trackInfo.SetRect(0, 0, 50, 5)
+	trackInfo.SetRect(0, 0, 65, 12)
 
 	// Create a bar chart widget to display frequency bands
 	bc := widgets.NewBarChart()
 	bc.Title = ""
-	bc.SetRect(0, 5, 50, 15)
+	bc.SetRect(0, 12, 65, 22)
+	bc.BarWidth = 4
 	bc.Labels = []string{"", "", "", "", "", "", "", "", "", ""} // Remove labels
 	bc.NumFormatter = func(v float64) string { return "" } // Prevent values from showing
 	bc.BarColors = []termui.Color{termui.ColorCyan}    
@@ -94,7 +95,7 @@ func main() {
 	stationDisplay.Title = "My Stations"
 	stationDisplay.Text = getStationList()
 	lines := strings.Count(stationDisplay.Text, "\n") + 2 // Add 2 for padding (title, etc.)
-	stationDisplay.SetRect(0, 15, 50, 15 + lines)
+	stationDisplay.SetRect(0, 22, 65, 22 + lines)
 
 	termui.Render(trackInfo, bc, stationDisplay)
 
@@ -115,9 +116,8 @@ func main() {
 			inputBuffer += e.ID
 
 			// Check if the accumulated input matches any station shortcut
-			if station := getStationByShortcut(inputBuffer); station != nil {
-				go func() {
-					fetchAndPrintTrackData(station.SongsURL, trackInfo)
+			if stationName, station := getStationByShortcut(inputBuffer); station != nil {				go func() {
+					fetchAndPrintTrackData(station.SongsURL, stationName, trackInfo)
 					termui.Render(trackInfo)
 				}()
 				go playStream(station.URL, bc)
@@ -154,13 +154,13 @@ func getStationList() string {
 	return builder.String()
 }
 
-func getStationByShortcut(shortcut string) *Station {
-	for _, station := range stations {
-		if shortcut == string(station.Shortcut) {
-			return &station
+func getStationByShortcut(shortcut string) (string, *Station) {
+	for name, station := range stations {
+		if shortcut == station.Shortcut {
+			return name, &station
 		}
 	}
-	return nil
+	return "", nil
 }
 
 func playStream(streamURL string, bc *widgets.BarChart) {
@@ -179,7 +179,7 @@ func playStream(streamURL string, bc *widgets.BarChart) {
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 
 	done := make(chan bool)
-	ticker := time.NewTicker(80 * time.Millisecond) // Limit updates to 5 times per second
+	ticker := time.NewTicker(100 * time.Millisecond) // Limit updates to 5 times per second
 	defer ticker.Stop()
 
 	// Create a custom streamer that analyzes the frequencies
@@ -223,7 +223,7 @@ func analyzeFrequencies(leftChannel []float64, bc *widgets.BarChart) {
 
 	// Eliminate the first and last bands
 	if len(bands) > 2 {
-		bands = bands[2 : len(bands)-2]
+		bands = bands[1 : len(bands)-1]
 	}
 
 	//mu.Lock()
@@ -234,7 +234,7 @@ func analyzeFrequencies(leftChannel []float64, bc *widgets.BarChart) {
 
 func calculateBands(samples []float64) []float64 {
 	fftResult := fft.FFTReal(samples)
-	numBands := 16
+	numBands := 15
 	bandWidth := len(fftResult) / numBands
 	bands := make([]float64, numBands)
 
@@ -249,10 +249,10 @@ func calculateBands(samples []float64) []float64 {
 	return bands
 }
 
-func fetchAndPrintTrackData(songsURL string, trackInfo *widgets.Paragraph) {
+func fetchAndPrintTrackData(songsURL string, selectedStationName string, trackInfo *widgets.Paragraph) {
 	resp, err := http.Get(songsURL)
 	if err != nil {
-		fmt.Println("Error fetching track data:", err)
+		trackInfo.Text = fmt.Sprintf("Error fetching track data: %v", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -263,14 +263,27 @@ func fetchAndPrintTrackData(songsURL string, trackInfo *widgets.Paragraph) {
 
 	var songs Songs
 	if err := decoder.Decode(&songs); err != nil {
-		trackInfo.Text = "Error parsing track data"
+		trackInfo.Text = fmt.Sprintf("Error parsing track data: %v", err)
 		return
 	}
 
+	var builder strings.Builder
+
+	// Print the current track (first track)
 	if len(songs.Songs) > 0 {
 		firstSong := songs.Songs[0]
-		trackInfo.Text = fmt.Sprintf("Now playing: %s - %s\nAlbum: %s", firstSong.Title, firstSong.Artist, firstSong.Album)
-	} else {
-		trackInfo.Text = "No track info available"
+		builder.WriteString(fmt.Sprintf("Now playing on %s\n", selectedStationName))
+		builder.WriteString("Track:                   Artist:               Album:\n")
+		builder.WriteString(fmt.Sprintf("%-23.23s  %-20.20s  %-15.15s\n\n", firstSong.Title, firstSong.Artist, firstSong.Album))
 	}
+
+	builder.WriteString("--------------------------History--------------------------\n")
+	// Print the other tracks
+	for _, song := range songs.Songs[1:6] { // Five most recent tracks
+		builder.WriteString(fmt.Sprintf("%-23.23s  %-20.20s  %-15.15s\n", song.Title, song.Artist, song.Album))
+	}
+
+	// Update the trackInfo widget with the current and previous tracks
+	trackInfo.Text = builder.String()
+	termui.Render(trackInfo)
 }
