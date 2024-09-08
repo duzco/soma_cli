@@ -79,28 +79,49 @@ func main() {
 
 	// Create a paragraph widget to display track info
 	trackInfo := widgets.NewParagraph()
+	trackInfo.BorderStyle.Fg = termui.ColorCyan
+	//trackInfo.TitleStyle = termui.NewStyle(termui.ColorYellow)
+	trackInfo.TextStyle.Fg = termui.ColorYellow
 	trackInfo.Title = "Now Playing"
 	trackInfo.Text = "No track selected"
-	trackInfo.SetRect(0, 0, 65, 12)
+	trackInfo.SetRect(25, 9, 90, 21)
 
 	// Create a bar chart widget to display frequency bands
 	bc := widgets.NewBarChart()
+	bc.BorderStyle.Fg = termui.ColorCyan
 	bc.Title = ""
-	bc.SetRect(0, 12, 65, 22)
-	bc.BarWidth = 4
+	bc.SetRect(50, 0, 90, 9)
+	bc.BarWidth = 2
 	bc.Labels = []string{"", "", "", "", "", "", "", "", "", ""} // Remove labels
 	bc.NumFormatter = func(v float64) string { return "" } // Prevent values from showing
-	bc.BarColors = []termui.Color{termui.ColorCyan}    
+	bc.BarColors = []termui.Color{termui.ColorYellow}    
 	termui.Render(trackInfo, bc)
 
 	// Display station options and await user input
 	stationDisplay := widgets.NewParagraph()
+	stationDisplay.BorderStyle.Fg = termui.ColorCyan
+	stationDisplay.TextStyle.Fg = termui.ColorYellow
+	//stationDisplay.TitleStyle = termui.NewStyle(termui.ColorCyan)
 	stationDisplay.Title = "My Stations"
 	stationDisplay.Text = getStationList()
-	lines := strings.Count(stationDisplay.Text, "\n") + 2 // Add 2 for padding (title, etc.)
-	stationDisplay.SetRect(0, 22, 65, 22 + lines)
+	//lines := strings.Count(stationDisplay.Text, "\n") + 2 // Add 2 for padding
+	stationDisplay.SetRect(0, 9, 25, 21)
 
-	termui.Render(trackInfo, bc, stationDisplay)
+	logo := widgets.NewParagraph()
+	logo.BorderStyle.Fg = termui.ColorCyan
+	logo.TextStyle.Fg = termui.ColorYellow
+	logo.Title = ""
+	logo.SetRect(0, 0, 49, 9)
+	logo.Text = `
+	   ______    ______    __    __    ______    
+	  /\  ___\  /\  __ \  /\ '-./  \  /\  __ \   
+	  \ \___  \ \ \ \/\ \ \ \ \-./\ \ \ \  __ \  
+	   \/\_____\ \ \_____\ \ \_\ \ \_\ \ \_\ \_\ 
+	    \/_____/  \/_____/  \/_/  \/_/  \/_/\/_/ 
+
+	`
+
+	termui.Render(trackInfo, bc, stationDisplay, logo)
 
 	// Start listening for keyboard events
 	uiEvents := termui.PollEvents()
@@ -274,15 +295,15 @@ func fetchAndPrintTrackData(songsURL string, selectedStationName string, trackIn
 	// Print the current track (first track)
 	if len(songs.Songs) > 0 {
 		firstSong := songs.Songs[0]
-		builder.WriteString(fmt.Sprintf("Now playing on %s\n", selectedStationName))
-		builder.WriteString("Track:                   Artist:               Album:\n")
-		builder.WriteString(fmt.Sprintf("%-23.23s  %-20.20s  %-15.15s\n\n", firstSong.Title, firstSong.Artist, firstSong.Album))
+		builder.WriteString(fmt.Sprintf("             ---- Station: %s ----\n", selectedStationName))
+		builder.WriteString("Track:                   Artist:             Album:\n")
+		builder.WriteString(fmt.Sprintf("%-23.23s  %-18.18s  %-17.17s\n\n", firstSong.Title, firstSong.Artist, firstSong.Album))
 	}
 
 	builder.WriteString("  --------------------------History--------------------------\n")
 	// Print the other tracks
 	for _, song := range songs.Songs[1:6] { // Five most recent tracks
-		builder.WriteString(fmt.Sprintf("%-23.23s  %-20.20s  %-15.15s\n", song.Title, song.Artist, song.Album))
+		builder.WriteString(fmt.Sprintf("%-23.23s  %-18.18s  %-17.17s\n", song.Title, song.Artist, song.Album))
 	}
 
 	// Update the trackInfo widget with the current and previous tracks
