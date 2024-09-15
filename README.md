@@ -1,4 +1,4 @@
-download, then navigate to 'soma_cli' dir
+clone/download, then navigate to 'soma_cli' dir
 
 to run enter this command: ./soma_cli
 
